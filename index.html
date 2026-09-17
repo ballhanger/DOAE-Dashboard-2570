@@ -250,7 +250,8 @@
     </div>
 
     <script>
-        const MASTER_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRzugFLo6mVzCbdo35AtXw_M7MDRuVbxGPk9oU_Q8n1C0jB1SAMkRtRinn7gUEUS-d_FrcQzbkEKWvx/pub?gid=0&single=true&output=csv";
+        const DB_JSON_URL = "./data/dashboard_db.json";
+	let DASHBOARD_DB = null;
         let MASTER_INDEX = [];
         let currentProjectIndex = 0; 
 
@@ -420,9 +421,12 @@
 
         document.addEventListener('DOMContentLoaded', async () => {
             try {
-                const rawIndexData = await fetchCSVWithCache(MASTER_CSV_URL);
+		// ดึงไฟล์ JSON ก้อนเดียวที่บอทสร้างไว้
+                const res = await fetch(DB_JSON_URL + '?_t=' + new Date().getTime());
+		DASHBOARD_DB = await res.json();
                 
-                MASTER_INDEX = rawIndexData.map(row => ({
+		// กำหนดสารบัญจาก JSON
+                MASTER_INDEX = DASHBOARD_DB.master_index;
                     seq: row["ลำดับ"] || "", 
                     name: row["ชื่อโครงการ/กิจกรรม"] || "",
                     url: row["ลิงก์ CSV"] ? row["ลิงก์ CSV"].trim() : "", 
@@ -586,19 +590,38 @@
                 }
             }
 
-            let itemsToFetch = [];
-            if (viewLevel === "ALL") itemsToFetch = MASTER_INDEX.filter(item => item.url.startsWith("http"));
-            else if (viewLevel === "GROUP") itemsToFetch = MASTER_INDEX.filter(item => item.group === selectedItem.group && item.url.startsWith("http") && item.name.trim().startsWith("-"));
-            else if(selectedItem.url.startsWith("http")) itemsToFetch = [selectedItem]; 
-            
             try {
-                const fetchPromises = itemsToFetch.map(async (item) => {
-                    const origIndex = MASTER_INDEX.indexOf(item);
-                    try { return { item: item, originalIndex: origIndex, data: await fetchCSVWithCache(item.url) }; } 
-                    catch (e) { return { item: item, originalIndex: origIndex, data: null }; }
-                });
+               		let validFetches = [];
 
-                const validFetches = (await Promise.all(fetchPromises)).filter(f => f.data !== null);
+              		if (viewLevel === "ALL") {
+		     Object.keys(DASHBOARD_DB.projects_data).forEach(idxStr => {
+                        	     const idx = parseInt(idxStr);
+                        	     const item = MASTER_INDEX[idx];
+                        	     if (item) {
+                            	           validFetches.push({
+                                		item: item,
+                                		originalIndex: idx,
+                                		data: DASHBOARD_DB.projects_data[idxStr] || []
+                            	            });
+                       	      }
+                   		    });
+                		} else if (viewLevel === "GROUP") {
+                    		     MASTER_INDEX.forEach((item, idx) => {
+                       	           if (item.group === selectedItem.group && item.name.trim().startsWith("-")) {
+                            		validFetches.push({
+                                		        item: item,
+                                		        originalIndex: idx,
+                                		        data: DASHBOARD_DB.projects_data[String(idx)] || []
+                            	            });
+                        	      }
+                    		  });
+                		} else {
+                    		      validFetches = [{
+                        		item: selectedItem,
+                        		originalIndex: index,
+                        		data: DASHBOARD_DB.projects_data[String(index)] || []
+                    		       }];
+               		}
                 if (validFetches.length === 0) {
                     displayTitle.textContent = "ไม่พบข้อมูล กรุณาตรวจสอบลิงก์ CSV";
                     return;
